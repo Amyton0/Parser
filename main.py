@@ -86,26 +86,21 @@ async def main():
     urls_splitted = [urls[i * part_size:(i + 1) * part_size] for i in range(parts)]
 
     k = 0
+    result = []
     for part in urls_splitted:
         tasks = []
         k += 1
         for url in part:
             tasks.append(asyncio.create_task(parse(url, browser)))
-            '''n += 1
-            try:
-                requests.get(url)
-                tasks.append(asyncio.create_task(parse(url, browser)))
-                count += 1
-                print(count)
-            except requests.RequestException:
-                print(n, count, url)
-                continue'''
 
         n = 0
         for task in tasks:
             n += 1
-            await task
+            result.append(await task)
             print(k, n)
+
+    file = open('result.txt', 'w')
+    file.write(str(result))
 
     await browser.close()
     await playwright.stop()
