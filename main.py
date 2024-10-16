@@ -1,44 +1,116 @@
 import requests
+import urllib.request
 from playwright.sync_api import sync_playwright
 import asyncio
 from playwright.async_api import async_playwright
+import time
+import playwright
+import math
 
 
-class Parser:
-    def __init__(self):
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch()
+async def parse(link, browser):
+    print("new page", link)
+    page = await browser.new_page()
 
-    def parse(self, link):
-        page = self.browser.new_page()
-        page.goto(link)
-        html = self.get_html(page)
-        text = self.get_all_text(page)
-        images = self.get_images(page)
-        page.close()
-        return {
-            "html": html,
-            "text": text,
-            "images": images
-        }
+    try:
+        print('loading', link)
+        await page.goto(link)
+    except Exception:
+        print(link, 'parse')
+        return None
+    print(time.strftime('%X'))
+    print(link, 'parsing started')
+    task_html = asyncio.create_task(get_html(page))
+    task_text = asyncio.create_task(get_all_text(page))
+    task_images = asyncio.create_task(get_images(page))
 
-    def get_all_text(self, page):
+    html = await task_html
+    text = await task_text
+    images = await task_images
+    await page.close()
+    print(link, 'parsing finished')
+    return {
+        "html": html,
+        "text": text,
+        "images": images
+    }
+
+
+async def get_all_text(page):
+    # print('all text ' + page.url + ' started ' + time.strftime('%X'))
+    try:
         locator = page.locator(':has-text("")')
-        text = '\n'.join(filter(lambda x: x and not x.isspace(), locator.all_inner_texts()))
-        return text
-
-    def get_html(self, page):
-        return page.inner_html('*')
-
-    def get_images(self, page):
-        locators = page.get_by_role('img').all()
-        return list(filter(lambda x: x, map(lambda x: x.get_attribute('src'), locators)))
-
-    def kill(self):
-        self.browser.close()
-        self.playwright.stop()
+        text = '\n'.join(filter(lambda x: x and not x.isspace(), await locator.all_inner_texts()))
+    except Exception:
+        print(page.url, 'text')
+        return None
+    # print('all text ' + page.url + ' finished ' + time.strftime('%X'))
+    return text
 
 
-parser = Parser()
-print(parser.parse('https://habr.com/ru/companies/amvera/articles/835304/'))
-parser.kill()
+async def get_html(page):
+    # print('html ' + page.url + ' started ' + time.strftime('%X'))
+    try:
+        html = await page.inner_html('*')
+    except Exception:
+        print(page.url, 'html')
+        return None
+    # print('html ' + page.url + ' finished ' + time.strftime('%X'))
+    return html
+
+
+async def get_images(page):
+    # print('images ' + page.url + ' started ' + time.strftime('%X'))
+    try:
+        locators = await page.get_by_role('img').all()
+        images = list(filter(lambda x: x, await get_srcs(locators)))
+    except Exception:
+        print(page.url, 'img')
+        return None
+    # print('images ' + page.url + ' finished ' + time.strftime('%X'))
+    return images
+
+
+async def get_srcs(locators):
+    return [await locator.get_attribute('src') for locator in locators]
+
+
+async def main():
+    playwright = await async_playwright().start()
+    browser = await playwright.chromium.launch()
+
+    sites = open('urls.txt', 'r')
+    part_size = 300
+    urls = sites.readlines()
+    parts = math.ceil(len(urls) / part_size)
+    urls_splitted = [urls[i * part_size:(i + 1) * part_size] for i in range(parts)]
+
+    k = 0
+    for part in urls_splitted:
+        tasks = []
+        k += 1
+        for url in part:
+            tasks.append(asyncio.create_task(parse(url, browser)))
+            '''n += 1
+            try:
+                requests.get(url)
+                tasks.append(asyncio.create_task(parse(url, browser)))
+                count += 1
+                print(count)
+            except requests.RequestException:
+                print(n, count, url)
+                continue'''
+
+        n = 0
+        for task in tasks:
+            n += 1
+            await task
+            print(k, n)
+
+    await browser.close()
+    await playwright.stop()
+
+
+print(time.strftime('%X'))
+asyncio.run(main())
+print(time.strftime('%X'))
